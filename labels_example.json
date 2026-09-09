@@ -1,0 +1,25 @@
+[
+  {
+    "id": "track_0002263",
+    "audio": "../../mtg-jamendo-dataset/dataset/63/2263.low.mp3",
+    "genres": [
+      "rock"
+    ],
+    "feelings": [
+      "melancholic"
+    ],
+    "split": "train"
+  },
+  {
+    "id": "track_0006719",
+    "audio": "../../mtg-jamendo-dataset/dataset/19/6719.low.mp3",
+    "genres": [
+      "pop",
+      "rock"
+    ],
+    "feelings": [
+      "relaxing"
+    ],
+    "split": "test"
+  }
+]
