@@ -1,0 +1,30 @@
+[project]
+name = "music-analyzer-v2"
+version = "0.1.0"
+description = "Multi-label music genre & mood classifier trained on MTG-Jamendo"
+readme = "README.md"
+authors = [
+    { name = "ChristosPaterakisntua", email = "christospaterakis1@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "librosa>=1.0.0",
+    "torch>=2.13.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.5",
+]
+
+[project.scripts]
+music-analyzer-v2 = "music_analyzer_v2:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.workspace]
+members = [
+    "mtg-jamendo-dataset",
+]
