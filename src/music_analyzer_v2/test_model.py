@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from json import dumps
 
 from .dataset import MusicDataLoader
 from .models import MusicAnalyzerModel0
@@ -22,7 +23,7 @@ def test(
         loads the test dataset
     device : `torch.device`
 
-    Returns
+    Prints
     --------
     dict[str, float] :
         Keys:
@@ -32,11 +33,17 @@ def test(
         - genre_micro_f1
         - feeling_micro_f1
     """
-    return run_epoch(
+    metrics: dict[str, float] = run_epoch(
         model=model,
         data_loader=data_loader,
         device=device,
         genre_loss_function=nn.BCEWithLogitsLoss(),
         feeling_loss_function=nn.BCEWithLogitsLoss(),
         optimizer=None,
+        confusion_matrix=True,
     )
+    print(dumps(
+        metrics,
+        indent=4,
+        ensure_ascii=False,
+    ))

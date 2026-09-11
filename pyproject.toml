@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "librosa>=1.0.0",
+    "matplotlib>=3.11.1",
     "torch>=2.13.0",
 ]
 

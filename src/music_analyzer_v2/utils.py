@@ -7,6 +7,9 @@ import os
 import numpy as np
 import torch
 from numpy.typing import NDArray
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+
 
 # ============= DATA TYPES ============
 
@@ -288,11 +291,17 @@ def micro_f1(
         The model predicted 0 when the true label was 1.
         e.g. prediction for genre: rock: 0, expected: rock: 1
 
-    We don't use true negatives because this would make the model
+    We don't use true negatives (TN) because this would make the model
     think it did a good job when it didn't
 
     Key concepts
     ------------
+    TP: true positives
+
+    FP: false positives
+
+    FN: false negatives
+
     Precision = TP / (TP + FP)
         how many of the ones where accurate?
 
@@ -314,7 +323,7 @@ def get_multilabel_metrics(
     logits: torch.Tensor,
     targets: torch.Tensor,
     threshold: float,
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, int]:
     """
     Calculates true_positives, false_positives, false_negatives
     from prediction logits
@@ -323,8 +332,8 @@ def get_multilabel_metrics(
 
     Returns
     --------
-    tuple[int, int, int]
-        true_positives, false_positives, false_negatives
+    tuple[int, int, int, int]
+        true_positives, false_positives, false_negatives, true_negatives
     """
     probabilities = torch.sigmoid(logits)
     predictions = probabilities >= threshold
@@ -333,5 +342,47 @@ def get_multilabel_metrics(
     true_positives = int(torch.logical_and(predictions, expected).sum().item())
     false_positives = int(torch.logical_and(predictions, ~expected).sum().item())
     false_negatives = int(torch.logical_and(~predictions, expected).sum().item())
+    true_negatives = int(torch.logical_and(~probabilities, ~expected).sum().item())
 
-    return true_positives, false_positives, false_negatives
+    return true_positives, false_positives, false_negatives, true_negatives
+
+
+def create_confusion_matrix(
+    true_positives: int,
+    false_positives: int,
+    false_negatives: int,
+    true_negatives: int,   
+    title: str, 
+) -> None:
+    """Constructs the confusion matrix used for evaluating the actual model accuracy"""
+    values = np.array([
+        [true_positives, false_negatives],
+        [false_positives, true_negatives],
+    ])
+    labels = np.array([
+        ['TP', 'FN'],
+        ['FP', 'TN'],
+    ])
+    colors = np.array([
+        ['lightgreen', 'red'],
+        ['red', 'lightgreen'],
+    ])
+    _, ax = plt.subplots()
+
+    for i in range(2):
+        for j in range(2):
+            rect = Rectangle((j,i), 1, 1, facecolor=colors[i, j], edgecolor='black')
+            ax.add_patch(rect)
+            ax.text(j + 0.5, i + 0.5, f'{labels[i, j]}\n{values[i, j]}', ha='center', va='center', fontsize=12)
+    ax.set_xticks([0.5, 1.5], ['Positive', 'Negative'])
+    ax.set_yticks([0.5, 1.5], ['Positive', 'Negative'])
+    ax.set_xlabel('Predicted label')
+    ax.set_ylabel('True label')
+    ax.set_title(f'{title} Confusion Matrix')
+    ax.set_xlim(0, 2)
+    ax.set_ylim(0, 2)
+    ax.invert_yaxis()
+    ax.set_aspect('equal')
+    plt.grid(False)
+    plt.tight_layout()
+    plt.show()

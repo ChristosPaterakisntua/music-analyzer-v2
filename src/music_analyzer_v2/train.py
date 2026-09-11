@@ -16,6 +16,7 @@ from .utils import (
     get_multilabel_metrics,
     micro_f1,
     set_random_seed,
+    create_confusion_matrix,
 )
 
 EPOCHS = 50
@@ -40,6 +41,7 @@ def run_epoch(
     genre_loss_function: nn.Module,
     feeling_loss_function: nn.Module,
     optimizer: torch.optim.Optimizer | None,
+    confusion_matrix: bool = False,
 ) -> dict[str, float]:
     """
     Performs an epoch
@@ -67,8 +69,8 @@ def run_epoch(
     total_feeling_loss = 0.0
     total_songs = 0
 
-    genre_tp = genre_fp = genre_fn = 0
-    feeling_tp = feeling_fp = feeling_fn = 0
+    genre_tp = genre_fp = genre_fn = genre_tn = 0
+    feeling_tp = feeling_fp = feeling_fn = feeling_tn = 0
 
     for batch in data_loader:
         log_mel_segments = batch["log_mel_segments"].to(
@@ -129,7 +131,7 @@ def run_epoch(
         total_genre_loss += float(genre_loss.detach()) * batch_size
         total_feeling_loss += float(feeling_loss.detach()) * batch_size
 
-        tp, fp, fn = get_multilabel_metrics(
+        tp, fp, fn, tn = get_multilabel_metrics(
             logits=genre_logits.detach(),
             targets=genre_targets,
             threshold=GENRE_THRESHOLD,
@@ -138,8 +140,12 @@ def run_epoch(
         genre_tp += tp
         genre_fp += fp
         genre_fn += fn
+        genre_tn += tn
 
-        tp, fp, fn = get_multilabel_metrics(
+        if confusion_matrix:
+            create_confusion_matrix(genre_tp, genre_fp, genre_fn, genre_tn, 'Genre')
+
+        tp, fp, fn, tn = get_multilabel_metrics(
             logits=feeling_logits.detach(),
             targets=feeling_targets,
             threshold=FEELING_THRESHOLD,
@@ -148,6 +154,10 @@ def run_epoch(
         feeling_tp += tp
         feeling_fp += fp
         feeling_fn += fn
+        feeling_tn += tn
+
+        if confusion_matrix:
+            create_confusion_matrix(feeling_tp, feeling_fp, feeling_fn, feeling_tn, 'Feeling')        
 
     return {
         "loss": total_loss / total_songs,
