@@ -3,12 +3,12 @@ from torch import nn
 from json import dumps
 
 from .dataset import MusicDataLoader
-from .models import MusicAnalyzerModel0
+from .models import MusicAnalyzerModel
 from .train import run_epoch
 
 
 def test(
-    model: MusicAnalyzerModel0,
+    model: MusicAnalyzerModel,
     data_loader: MusicDataLoader,
     device: torch.device,
 ) -> dict[str, float]:
@@ -17,7 +17,7 @@ def test(
 
     Args
     -------
-    model : :class:`MusicAnalyzerModel0`
+    model : :class:`MusicAnalyzerModel`
         trained model
     dataloader : :class:`MusicDataLoader`
         loads the test dataset
@@ -42,8 +42,10 @@ def test(
         optimizer=None,
         confusion_matrix=True,
     )
-    print(dumps(
-        metrics,
-        indent=4,
-        ensure_ascii=False,
-    ))
+    print(
+        dumps(
+            metrics,
+            indent=4,
+            ensure_ascii=False,
+        )
+    )

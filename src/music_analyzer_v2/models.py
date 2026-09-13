@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TypeVar
 
 import torch
 from torch import nn
@@ -110,7 +111,11 @@ class SegmentCNN(nn.Module):
                 out_channels=128,
                 dropout=0.15,
             ),
-            ConvBlock(in_channels=128, out_channels=256, dropout=0.2),
+            ConvBlock(
+                in_channels=128,
+                out_channels=256,
+                dropout=0.2,
+            ),
             # Whatever the spectogram dimensions are,
             # the result becomes (256, 1, 1)
             nn.AdaptiveAvgPool2d((1, 1)),
@@ -290,7 +295,7 @@ class MusicAnalyzerModel0(nn.Module):
 
         _, hidden = self.segment_gru(packed_segments)
 
-        # For a one-layer bidirectional GRU:
+        # For a one-layer BiGRU:
         #
         # hidden[-2] = final forward state
         # hidden[-1] = final backward state
@@ -316,6 +321,7 @@ class MusicAnalyzerModel0(nn.Module):
         )
 
         shared_embedding = self.shared_layers(combined_embedding)
+
         genre_logits = self.genre_head(shared_embedding)
         feeling_logits = self.feeling_head(shared_embedding)
 
@@ -369,8 +375,206 @@ class MusicAnalyzerModel0(nn.Module):
             raise ValueError("A segment length exceeds max_segments")
 
 
+class MusicAnalyzerModel1(nn.Module):
+    """
+    Single input, double output music classification model
+
+    Inputs
+    -------
+    log_mel_segments:
+        Shape: (batch, max_segments, 1, n_mels, frames)
+
+    segment_lengths:
+        Shape: (batch, )
+
+    Outputs
+    --------
+    genre_logits:
+        Shape: (batch, num_genres)
+
+    feeling_logits:
+        Shapr: (batch, num_feelings)
+    """
+
+    def __init__(
+        self,
+        num_genres: int = len(GENRES),
+        num_feelings: int = len(FEELINGS),
+        segment_embedding_dim: int = 256,
+        gru_hidden_size: int = 128,
+        shared_hidden_size: int = 256,
+        dropout: float = 0.3,
+    ):
+        super().__init__()
+
+        if num_genres <= 1:
+            raise ValueError("num_genres must be greater than 1")
+
+        if num_feelings <= 0:
+            raise ValueError("num_feelings must be positive")
+
+        # 1. CNN: one embedding for every five second segment.
+        self.segment_encoder = SegmentCNN(
+            embedding_dim=segment_embedding_dim,
+            dropout=0.2,
+        )
+
+        # 2. BiGRU: combines the segments in their original order.
+        self.segment_gru = nn.GRU(
+            input_size=segment_embedding_dim,
+            hidden_size=gru_hidden_size,
+            batch_first=True,
+            bidirectional=True,
+        )
+
+        # The BiGRU has 2 directions
+        song_embedding_dim = 2 * gru_hidden_size
+
+        # 3. Common representation for both tasks.
+        self.shared_layers = nn.Sequential(
+            nn.Linear(
+                in_features=song_embedding_dim,
+                out_features=shared_hidden_size,
+            ),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.LayerNorm(shared_hidden_size),
+        )
+
+        self.genre_head = nn.Linear(
+            in_features=shared_hidden_size,
+            out_features=num_genres,
+        )
+
+        self.feeling_head = nn.Linear(
+            in_features=shared_hidden_size,
+            out_features=num_feelings,
+        )
+
+        def forward(
+            self,
+            log_mel_segments: torch.Tensor,
+            segment_lengths: torch.Tensor,
+        ) -> dict[str, torch.Tensor]:
+
+            self._validate_inputs(
+                log_mel_segments=log_mel_segments,
+                segment_lengths=segment_lengths,
+            )
+
+            (
+                batch_size,
+                max_segments,
+                channels,
+                n_mels,
+                frames,
+            ) = log_mel_segments.shape
+
+            # Merge batch and segment dimensions
+            #
+            # (B, S, 1, 128, T)
+            #        ↓
+            # (B*S, 1, 128, T)
+            flat_segments = log_mel_segments.reshape(
+                batch_size * max_segments,
+                channels,
+                n_mels,
+                frames,
+            )
+
+            # CNN embedding for every segment:
+            #
+            # (B*S, 1, 128, T)
+            #         ↓
+            # (B*S, segment_embedding_dim)
+            segment_embeddings = self.segment_encoder(flat_segments)
+
+            # Restore song and segment dimensions:
+            ## (B*S, embedding)
+            #
+            # (B, S, embedding)
+            segment_embeddings = segment_embeddings.reshape(
+                batch_size,
+                max_segments,
+                -1,
+            )
+
+            # Ignores padded segments when songs have
+            # different number of segments
+            packed_segments = pack_padded_sequence(
+                input=segment_embeddings,
+                lengths=segment_lengths.to(
+                    device="cpu",
+                    dtype=torch.long,
+                ),
+                batch_first=True,
+                enforce_sorted=False,
+            )
+
+            _, hidden = self.segment_gru(packed_segments)
+
+            # For a one-layer BiGRU
+            # hidden[-2] = final forward state
+            # hidden[-1] = final backward state
+            forward_hidden = hidden[-2]
+            backward_hidden = hidden[-1]
+
+            song_embedding = torch.cat(
+                [
+                    forward_hidden,
+                    backward_hidden,
+                ],
+                dim=1,
+            )
+
+            shared_embedding = self.shared_layers(song_embedding)
+
+            genre_logits = self.genre_head(shared_embedding)
+            feeling_logits = self.feeling_head(shared_embedding)
+
+            return {
+                "genre_logits": genre_logits,
+                "feeling_logits": feeling_logits,
+            }
+
+        def _validate_inputs(
+            log_mel_segments: torch.Tensor,
+            segment_lengths: torch.Tensor,
+        ) -> None:
+            if log_mel_segments.ndim != 5:
+                raise ValueError(
+                    "log_mel_segments must have shape "
+                    "(batch, segments, channels, n_mels, frames)"
+                )
+
+            if segment_lengths.ndim != 1:
+                raise ValueError("segment lengths must have shape (batch,)")
+
+            batch_size = log_mel_segments.shape[0]
+            max_segments = log_mel_segments.shape[1]
+            channels = log_mel_segments.shape[2]
+
+            if channels != 1:
+                raise ValueError("Expected one log-mel input channel")
+
+            if segment_lengths.shape[0] != batch_size:
+                raise ValueError("segment_lengths has the wrong batch size")
+
+            lengths = segment_lengths.detach().cpu()
+
+            if torch.any(lengths < 1):
+                raise ValueError("Every song must contain at least one segment")
+
+            if torch.any(lengths > max_segments):
+                raise ValueError("A segment length exceeds max_segments")
+
+
 # Generic type hint for all valid models
-type MusicAnalyzerModel = type[MusicAnalyzerModel0]
+MusicAnalyzerModel = TypeVar(
+    "MusicAnalyzerModel",
+    MusicAnalyzerModel0,
+    MusicAnalyzerModel1,
+)
 
 
 def load_saved_model(

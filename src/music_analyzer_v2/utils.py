@@ -351,38 +351,51 @@ def create_confusion_matrix(
     true_positives: int,
     false_positives: int,
     false_negatives: int,
-    true_negatives: int,   
-    title: str, 
+    true_negatives: int,
+    title: str,
 ) -> None:
     """Constructs the confusion matrix used for evaluating the actual model accuracy"""
-    values = np.array([
-        [true_positives, false_negatives],
-        [false_positives, true_negatives],
-    ])
-    labels = np.array([
-        ['TP', 'FN'],
-        ['FP', 'TN'],
-    ])
-    colors = np.array([
-        ['lightgreen', 'red'],
-        ['red', 'lightgreen'],
-    ])
+    values = np.array(
+        [
+            [true_positives, false_negatives],
+            [false_positives, true_negatives],
+        ]
+    )
+    labels = np.array(
+        [
+            ["TP", "FN"],
+            ["FP", "TN"],
+        ]
+    )
+    colors = np.array(
+        [
+            ["lightgreen", "red"],
+            ["red", "lightgreen"],
+        ]
+    )
     _, ax = plt.subplots()
 
     for i in range(2):
         for j in range(2):
-            rect = Rectangle((j,i), 1, 1, facecolor=colors[i, j], edgecolor='black')
+            rect = Rectangle((j, i), 1, 1, facecolor=colors[i, j], edgecolor="black")
             ax.add_patch(rect)
-            ax.text(j + 0.5, i + 0.5, f'{labels[i, j]}\n{values[i, j]}', ha='center', va='center', fontsize=12)
-    ax.set_xticks([0.5, 1.5], ['Positive', 'Negative'])
-    ax.set_yticks([0.5, 1.5], ['Positive', 'Negative'])
-    ax.set_xlabel('Predicted label')
-    ax.set_ylabel('True label')
-    ax.set_title(f'{title} Confusion Matrix')
+            ax.text(
+                j + 0.5,
+                i + 0.5,
+                f"{labels[i, j]}\n{values[i, j]}",
+                ha="center",
+                va="center",
+                fontsize=12,
+            )
+    ax.set_xticks([0.5, 1.5], ["Positive", "Negative"])
+    ax.set_yticks([0.5, 1.5], ["Positive", "Negative"])
+    ax.set_xlabel("Predicted label")
+    ax.set_ylabel("True label")
+    ax.set_title(f"{title} Confusion Matrix")
     ax.set_xlim(0, 2)
     ax.set_ylim(0, 2)
     ax.invert_yaxis()
-    ax.set_aspect('equal')
+    ax.set_aspect("equal")
     plt.grid(False)
     plt.tight_layout()
     plt.show()

@@ -8,7 +8,7 @@ import torch
 from torch import nn
 
 from .dataset import MusicDataLoader
-from .models import MusicAnalyzerModel0
+from .models import MusicAnalyzerModel
 from .utils import (
     FEELING_THRESHOLD,
     GENRE_THRESHOLD,
@@ -35,7 +35,7 @@ SAVED_MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def run_epoch(
-    model: MusicAnalyzerModel0,
+    model: MusicAnalyzerModel,
     data_loader: MusicDataLoader,
     device: torch.device,
     genre_loss_function: nn.Module,
@@ -143,7 +143,7 @@ def run_epoch(
         genre_tn += tn
 
         if confusion_matrix:
-            create_confusion_matrix(genre_tp, genre_fp, genre_fn, genre_tn, 'Genre')
+            create_confusion_matrix(genre_tp, genre_fp, genre_fn, genre_tn, "Genre")
 
         tp, fp, fn, tn = get_multilabel_metrics(
             logits=feeling_logits.detach(),
@@ -157,7 +157,9 @@ def run_epoch(
         feeling_tn += tn
 
         if confusion_matrix:
-            create_confusion_matrix(feeling_tp, feeling_fp, feeling_fn, feeling_tn, 'Feeling')        
+            create_confusion_matrix(
+                feeling_tp, feeling_fp, feeling_fn, feeling_tn, "Feeling"
+            )
 
     return {
         "loss": total_loss / total_songs,
@@ -177,7 +179,7 @@ def run_epoch(
 
 
 def save_checkpoint(
-    model: MusicAnalyzerModel0,
+    model: MusicAnalyzerModel,
     optimizer: torch.optim.Optimizer,
     epoch: int,
     best_loss: float,
@@ -229,7 +231,7 @@ def save_checkpoint(
 
 
 def train(
-    model: MusicAnalyzerModel0,
+    model: MusicAnalyzerModel,
     train_data_loader: MusicDataLoader,
     validation_data_loader: MusicDataLoader,
     device: torch.device,
@@ -245,7 +247,7 @@ def train(
 
     Args
     --------
-    model : :class:`MusicAnalyzerModel0`
+    model : :class:`MusicAnalyzerModel`
     train_data_loader : :class:`MusicDataLoader`
     validation_data_loader : :class:`MusicDataLoader`
     name : `str` = "music_analyzer_model_best.pt"
