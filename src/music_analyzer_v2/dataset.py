@@ -65,7 +65,7 @@ class MusicDataset(Dataset[dict[str, torch.Tensor]]):
 
     Note
     ------
-    Use :method:`fit_scalar_normalizer` and :method:`set_scalar_normalizer`
+    Use :method:`fit_scalar_standardizer` and :method:`set_scalar_standardizer`
     """
 
     def __init__(
@@ -126,7 +126,7 @@ class MusicDataset(Dataset[dict[str, torch.Tensor]]):
             id=track_id,
         )
 
-    def fit_scalar_normalizer(self) -> tuple[FloatArray, FloatArray]:
+    def fit_scalar_standardizer(self) -> tuple[FloatArray, FloatArray]:
         """
         Use it only for train split
 
@@ -146,7 +146,7 @@ class MusicDataset(Dataset[dict[str, torch.Tensor]]):
         std = np.where(std < 1e-8, 1.0, std).astype(np.float32)
         return mean, std
 
-    def set_scalar_normalizer(self, mean: FloatArray, std: FloatArray) -> None:
+    def set_scalar_standardizer(self, mean: FloatArray, std: FloatArray) -> None:
         self.scalar_mean = mean
         self.scalar_std = std
 

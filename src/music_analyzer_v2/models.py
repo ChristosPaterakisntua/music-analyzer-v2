@@ -455,6 +455,7 @@ class MusicAnalyzerModel1(nn.Module):
             self,
             log_mel_segments: torch.Tensor,
             segment_lengths: torch.Tensor,
+            **kwargs,
         ) -> dict[str, torch.Tensor]:
 
             self._validate_inputs(

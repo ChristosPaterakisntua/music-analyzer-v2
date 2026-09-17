@@ -306,7 +306,7 @@ def micro_f1(
         how many of the ones where accurate?
 
     Recall = TP / (TP + FN)
-        how many of the ones did the model find?
+        how many of the ones did the model find? (also known as sensitivity)
 
     micro_f1 = harmonic_mean(Precision, Recall) = (2 * TP) / (2 * TP + FP + FN)
         We need to take both precision and recall into account to
@@ -352,7 +352,7 @@ def create_confusion_matrix(
     false_positives: int,
     false_negatives: int,
     true_negatives: int,
-    title: str,
+    title: str = "",
 ) -> None:
     """Constructs the confusion matrix used for evaluating the actual model accuracy"""
     values = np.array(

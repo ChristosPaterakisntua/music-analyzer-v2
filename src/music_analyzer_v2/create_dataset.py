@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -11,7 +10,7 @@ from music_analyzer_v2.feature_extractor import ArrayExtractedFeatures, extract_
 from music_analyzer_v2.utils import check_valid_npz, get_path_from_id
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).parents[2]
 RAW_DATASET_DIRECTORY = REPO_ROOT / "mtg-jamendo-dataset" / "dataset"
 PARSED_DATASET_DIRECTORY = REPO_ROOT / "parsed_dataset"
 
