@@ -451,123 +451,123 @@ class MusicAnalyzerModel1(nn.Module):
             out_features=num_feelings,
         )
 
-        def forward(
-            self,
-            log_mel_segments: torch.Tensor,
-            segment_lengths: torch.Tensor,
-            **kwargs,
-        ) -> dict[str, torch.Tensor]:
+    def forward(
+        self,
+        log_mel_segments: torch.Tensor,
+        segment_lengths: torch.Tensor,
+        **kwargs,
+    ) -> dict[str, torch.Tensor]:
 
-            self._validate_inputs(
-                log_mel_segments=log_mel_segments,
-                segment_lengths=segment_lengths,
+        self._validate_inputs(
+            log_mel_segments=log_mel_segments,
+            segment_lengths=segment_lengths,
+        )
+
+        (
+            batch_size,
+            max_segments,
+            channels,
+            n_mels,
+            frames,
+        ) = log_mel_segments.shape
+
+        # Merge batch and segment dimensions
+        #
+        # (B, S, 1, 128, T)
+        #        ↓
+        # (B*S, 1, 128, T)
+        flat_segments = log_mel_segments.reshape(
+            batch_size * max_segments,
+            channels,
+            n_mels,
+            frames,
+        )
+
+        # CNN embedding for every segment:
+        #
+        # (B*S, 1, 128, T)
+        #         ↓
+        # (B*S, segment_embedding_dim)
+        segment_embeddings = self.segment_encoder(flat_segments)
+
+        # Restore song and segment dimensions:
+        ## (B*S, embedding)
+        #
+        # (B, S, embedding)
+        segment_embeddings = segment_embeddings.reshape(
+            batch_size,
+            max_segments,
+            -1,
+        )
+
+        # Ignores padded segments when songs have
+        # different number of segments
+        packed_segments = pack_padded_sequence(
+            input=segment_embeddings,
+            lengths=segment_lengths.to(
+                device="cpu",
+                dtype=torch.long,
+            ),
+            batch_first=True,
+            enforce_sorted=False,
+        )
+
+        _, hidden = self.segment_gru(packed_segments)
+
+        # For a one-layer BiGRU
+        # hidden[-2] = final forward state
+        # hidden[-1] = final backward state
+        forward_hidden = hidden[-2]
+        backward_hidden = hidden[-1]
+
+        song_embedding = torch.cat(
+            [
+                forward_hidden,
+                backward_hidden,
+            ],
+            dim=1,
+        )
+
+        shared_embedding = self.shared_layers(song_embedding)
+
+        genre_logits = self.genre_head(shared_embedding)
+        feeling_logits = self.feeling_head(shared_embedding)
+
+        return {
+            "genre_logits": genre_logits,
+            "feeling_logits": feeling_logits,
+        }
+
+    def _validate_inputs(
+        log_mel_segments: torch.Tensor,
+        segment_lengths: torch.Tensor,
+    ) -> None:
+        if log_mel_segments.ndim != 5:
+            raise ValueError(
+                "log_mel_segments must have shape "
+                "(batch, segments, channels, n_mels, frames)"
             )
 
-            (
-                batch_size,
-                max_segments,
-                channels,
-                n_mels,
-                frames,
-            ) = log_mel_segments.shape
+        if segment_lengths.ndim != 1:
+            raise ValueError("segment lengths must have shape (batch,)")
 
-            # Merge batch and segment dimensions
-            #
-            # (B, S, 1, 128, T)
-            #        ↓
-            # (B*S, 1, 128, T)
-            flat_segments = log_mel_segments.reshape(
-                batch_size * max_segments,
-                channels,
-                n_mels,
-                frames,
-            )
+        batch_size = log_mel_segments.shape[0]
+        max_segments = log_mel_segments.shape[1]
+        channels = log_mel_segments.shape[2]
 
-            # CNN embedding for every segment:
-            #
-            # (B*S, 1, 128, T)
-            #         ↓
-            # (B*S, segment_embedding_dim)
-            segment_embeddings = self.segment_encoder(flat_segments)
+        if channels != 1:
+            raise ValueError("Expected one log-mel input channel")
 
-            # Restore song and segment dimensions:
-            ## (B*S, embedding)
-            #
-            # (B, S, embedding)
-            segment_embeddings = segment_embeddings.reshape(
-                batch_size,
-                max_segments,
-                -1,
-            )
+        if segment_lengths.shape[0] != batch_size:
+            raise ValueError("segment_lengths has the wrong batch size")
 
-            # Ignores padded segments when songs have
-            # different number of segments
-            packed_segments = pack_padded_sequence(
-                input=segment_embeddings,
-                lengths=segment_lengths.to(
-                    device="cpu",
-                    dtype=torch.long,
-                ),
-                batch_first=True,
-                enforce_sorted=False,
-            )
+        lengths = segment_lengths.detach().cpu()
 
-            _, hidden = self.segment_gru(packed_segments)
+        if torch.any(lengths < 1):
+            raise ValueError("Every song must contain at least one segment")
 
-            # For a one-layer BiGRU
-            # hidden[-2] = final forward state
-            # hidden[-1] = final backward state
-            forward_hidden = hidden[-2]
-            backward_hidden = hidden[-1]
-
-            song_embedding = torch.cat(
-                [
-                    forward_hidden,
-                    backward_hidden,
-                ],
-                dim=1,
-            )
-
-            shared_embedding = self.shared_layers(song_embedding)
-
-            genre_logits = self.genre_head(shared_embedding)
-            feeling_logits = self.feeling_head(shared_embedding)
-
-            return {
-                "genre_logits": genre_logits,
-                "feeling_logits": feeling_logits,
-            }
-
-        def _validate_inputs(
-            log_mel_segments: torch.Tensor,
-            segment_lengths: torch.Tensor,
-        ) -> None:
-            if log_mel_segments.ndim != 5:
-                raise ValueError(
-                    "log_mel_segments must have shape "
-                    "(batch, segments, channels, n_mels, frames)"
-                )
-
-            if segment_lengths.ndim != 1:
-                raise ValueError("segment lengths must have shape (batch,)")
-
-            batch_size = log_mel_segments.shape[0]
-            max_segments = log_mel_segments.shape[1]
-            channels = log_mel_segments.shape[2]
-
-            if channels != 1:
-                raise ValueError("Expected one log-mel input channel")
-
-            if segment_lengths.shape[0] != batch_size:
-                raise ValueError("segment_lengths has the wrong batch size")
-
-            lengths = segment_lengths.detach().cpu()
-
-            if torch.any(lengths < 1):
-                raise ValueError("Every song must contain at least one segment")
-
-            if torch.any(lengths > max_segments):
-                raise ValueError("A segment length exceeds max_segments")
+        if torch.any(lengths > max_segments):
+            raise ValueError("A segment length exceeds max_segments")
 
 
 # Generic type hint for all valid models
