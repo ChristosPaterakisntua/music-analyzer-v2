@@ -150,6 +150,33 @@ class MusicDataset(Dataset[dict[str, torch.Tensor]]):
         self.scalar_mean = mean
         self.scalar_std = std
 
+    def get_raw_scalar_features(self, index: int) -> FloatArray:
+        item = self.items[index]
+        track_id = item.get("id")
+        path = get_path_from_id(track_id)
+        features = np.load(path)
+        return features.get("scalar_features")
+
+    def get_targets(self) -> dict[str, np.ndarray]:
+        """
+        Returns genre, feeling targets for all instances
+        
+        Returns
+        -------
+        dict[str, np.ndarray]:
+            - genre_targets
+            - feeling_targets
+        """
+        genre_targets_list = []
+        feeling_targets_list = []
+        for index in range(len(self)):
+            item = self.items[index]
+            genre_targets_list.append(item["genres"])
+            feeling_targets_list.append(item["feelings"])
+        return {
+            "genre_targets": np.stack(genre_targets_list),
+            "feeling_targets": np.stack(feeling_targets_list),
+        }
 
 def collate_songs(batch: list[AudioEntry]) -> dict[str, Any]:
     """

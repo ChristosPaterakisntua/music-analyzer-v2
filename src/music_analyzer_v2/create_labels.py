@@ -156,7 +156,7 @@ FEELING_SOURCES: dict[str, set[str]] = {
 RAW_DATASET_DIRECTORY = Path("../../mtg-jamendo-dataset")
 SPLITS_DIRECTORY = RAW_DATASET_DIRECTORY / Path("data/splits/split-0")
 AUDIO_DIRECTORY = RAW_DATASET_DIRECTORY / Path("dataset/")
-OUTPUT_FILE = Path("../../parsed_dataset/labels.json")
+LABELS_PATH = Path("../../parsed_dataset/labels.json")
 
 SPLITS = ("train", "validation", "test")
 
@@ -301,7 +301,7 @@ def main(
 
         print(f"{split}: {len(split_entries)} tracks")
 
-    with OUTPUT_FILE.open("w", encoding="utf-8") as file:
+    with LABELS_PATH.open("w", encoding="utf-8") as file:
         json.dump(
             entries,
             file,
@@ -310,7 +310,7 @@ def main(
         )
 
     print(f"Total: {len(entries)} tracks")
-    print(f"Created: {OUTPUT_FILE.resolve()}")
+    print(f"Created: {LABELS_PATH.resolve()}")
 
 
 if __name__ == "__main__":
