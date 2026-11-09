@@ -63,6 +63,13 @@ The [MTG-Jamendo](https://mtg.github.io/mtg-jamendo-dataset/) dataset provides
 project focuses on a curated subset and maps the raw MTG tags onto a compact,
 consistent label set.
 
+> ☁️ Για ολόκληρη τη ροή στο **Google Colab** (download + τοπικά `.npz` + upload στο
+> Drive) δες το [`colab/dataset_pipeline.ipynb`](colab/dataset_pipeline.ipynb).
+>
+> Όλα τα paths προσδιορίζονται από τη θέση του package και μπορούν να
+> παρακαμφθούν με env vars: `MA2_RAW_DATASET`, `MA2_PARSED_DATASET`,
+> `MA2_LABELS_PATH`, `MA2_CHECKPOINT_DIR`, `MA2_SAVED_MODELS_DIR`.
+
 ### 1. Build the labels
 `create_labels.py` reads the MTG **split TSV** files, keeps only tracks present
 in both the genre and mood subsets, filters out tracks whose `.npz` is **missing
@@ -70,24 +77,113 @@ or corrupted**, maps raw tags to the project's target labels, and writes
 `parsed_dataset/labels.json`:
 
 ```bash
-cd src/music_analyzer_v2
-python create_labels.py            # dry-run (builds labels.json)
-python create_labels.py --delete    # also delete corrupt .npz files
+python -m music_analyzer_v2.create_labels                       # build labels.json
+python -m music_analyzer_v2.create_labels --check --delete      # + keep only valid .npz
 ```
 
-### 2. Extract features to `.npz`
+The split TSVs are **metadata** and are not served by the audio CDN — they live
+in the official GitHub repository. Fetch them with:
+
+```bash
+python scripts/download_mtg_jamendo.py --mode splits
+# -> <raw dataset>/data/splits/split-0/autotagging_{genre,moodtheme}-{train,validation,test}.tsv
+```
+
+**Split-0 coverage** (verified against the official TSVs):
+
+| subset | train | validation | test | total |
+|---|---|---|---|---|
+| `autotagging_genre` | 32 572 | 11 043 | 11 479 | **55 094** |
+| `autotagging_moodtheme` | 9 949 | 3 802 | 4 231 | **17 982** |
+| in **both** (used here) | 9 810 | 3 767 | 4 159 | **17 736** |
+
+Tracks that exist in only one subset (37 358 genre-only, 246 mood-only) are
+**not** part of this project, because the model predicts genres *and* feelings
+simultaneously and therefore needs both label sets.
+
+Of the 17 736 tracks present in both subsets, the ones whose tags do not map
+onto the project's target labels are dropped as well (a track must end up with
+at least one genre *and* one feeling). This leaves the final manifest:
+
+| split | tracks |
+|---|---|
+| train | 4 742 |
+| validation | 1 799 |
+| test | 1 916 |
+| **total** | **8 457** |
+
+### 2. Download the raw audio
+`scripts/download_mtg_jamendo.py` fetches **only the tracks listed in
+`labels.json`** from the official CDN — parallel, resumable (Range) and
+verified against `Content-Length`:
+
+```bash
+python scripts/download_mtg_jamendo.py --dry-run    # show what would be fetched
+python scripts/download_mtg_jamendo.py --limit 10   # quick test
+python scripts/download_mtg_jamendo.py              # subset, low quality
+python scripts/download_mtg_jamendo.py --mode tars  # whole dataset, low (~165 GB)
+python scripts/download_mtg_jamendo.py --quality full --mode tars  # full 320 kbps (~540 GB)
+```
+
+> ⚠️ **Always use the universal `raw_30s` source** — the downloader does this
+> automatically:
+>
+> ```
+> https://cdn.freesound.org/mtg-jamendo/raw_30s/audio-low/<NN>/<id>.low.mp3
+> ```
+>
+> The per-subset paths (`autotagging_genre/audio-low/...`,
+> `autotagging_moodtheme/audio-low/...`) must **not** be used: they return
+> **HTTP 404** for tracks that are not part of that specific subset, even
+> though the very same file exists under `raw_30s`. Since `raw_30s` holds the
+> whole corpus, it covers every track of both subsets, and tracks belonging to
+> both are downloaded only once.
+
+The split TSVs reference the full-quality files (`41/241.mp3`); the low-quality
+CDN serves the same audio as `41/241.low.mp3`. The conversion is done on the
+*string* level (never `Path.with_suffix()`, which would turn `241.low.mp3` into
+`241.low.low.mp3`), so it is idempotent and safe for names with several dots.
+
+> The project loads audio as **mono @ 22.05 kHz** (`audio_loader.py`), so the
+> mono `.low.mp3` variant (default) keeps essentially all usable content while
+> being ~3.4× smaller — use `--quality full` only if you need 320 kbps/stereo
+> sources (then also adapt the `.low.mp3` suffix in `create_labels.py`).
+
+**Disk requirements** (for the 8 457-track manifest):
+
+| item | size |
+|---|---|
+| raw audio, low quality (`.low.mp3`) | ~33 GB (measured ≈ 3.9 MB/track) |
+| raw audio, full quality (320 kbps stereo) | ~100 GB |
+| parsed `.npz` features | ~65 GB (measured ≈ 7.7 MB/track) |
+
+> 💡 The `.npz` files are **larger** than the audio they are derived from. Parse
+> and delete the mp3s in batches (`python scripts/delete_parsed_mp3.py
+> --confirm`) if disk space is tight.
+
+### 3. Extract features to `.npz`
 Each track becomes one compressed `.npz` file (named after the track id) inside
 `parsed_dataset/`. Extraction is **multi-process** and **resumable** (already
 parsed tracks are skipped):
 
 ```bash
-cd src/music_analyzer_v2
-python create_dataset.py
+python -m music_analyzer_v2.create_dataset
 ```
 
 Because extraction is CPU-heavy and can occasionally crash on a specific file,
-the optional C++ **supervisor** automatically re-runs it, tracks progress by
-counting `.npz` files, and stops cleanly when nothing is left to do:
+the **portable Python supervisor** re-runs it, tracks progress by counting
+`.npz` files in the real output directory, stops cleanly when nothing is left
+to do, and can upload every new `.npz` to a target directory (e.g. a Google
+Drive mount) after each round:
+
+```bash
+python scripts/supervised_create_dataset.py                      # run until done (local)
+python scripts/supervised_create_dataset.py --upload-to <dir>    # + incremental upload
+python scripts/supervised_create_dataset.py --upload-only --upload-to <dir>  # sync & verify only
+python scripts/supervised_create_dataset.py --del-parsed         # ... after a verified upload
+```
+
+On Windows the original C++ supervisor is still available:
 
 ```bash
 cd scripts

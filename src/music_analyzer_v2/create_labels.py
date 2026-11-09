@@ -6,7 +6,16 @@ from pathlib import Path
 from typing import TypedDict
 import argparse
 
-from music_analyzer_v2.utils import FEELINGS, GENRES, check_valid_npz
+from music_analyzer_v2.utils import (
+    FEELINGS,
+    GENRES,
+    LABELS_PATH,
+    SPLITS_DIRECTORY,
+    RAW_DATASET_DIRECTORY,
+    PARSED_DATASET_DIRECTORY,
+    check_valid_npz,
+    low_quality_path,
+)
 
 GENRE_SOURCES: dict[str, set[str]] = {
     "classical": {
@@ -153,10 +162,9 @@ FEELING_SOURCES: dict[str, set[str]] = {
     "epic": {"epic"},
 }
 
-RAW_DATASET_DIRECTORY = Path("../../mtg-jamendo-dataset")
-SPLITS_DIRECTORY = RAW_DATASET_DIRECTORY / Path("data/splits/split-0")
-AUDIO_DIRECTORY = RAW_DATASET_DIRECTORY / Path("dataset/")
-LABELS_PATH = Path("../../parsed_dataset/labels.json")
+# paths now come from music_analyzer_v2.utils (env-overridable, CWD-independent):
+#   MTG_JAMENDO_DIRECTORY / SPLITS_DIRECTORY / RAW_DATASET_DIRECTORY / LABELS_PATH
+AUDIO_DIRECTORY = RAW_DATASET_DIRECTORY
 
 SPLITS = ("train", "validation", "test")
 
@@ -175,9 +183,17 @@ class LabelEntry(TypedDict):
 
 
 def read_split_file(path: Path) -> dict[str, TrackMetadata]:
-    """Read an MTG-Jamendo TSV split file."""
+    """Read an MTG-Jamendo TSV split file.
+
+    A missing file is treated as an empty split (e.g. a checkout that only
+    contains the train/test TSVs) instead of raising.
+    """
 
     tracks: dict[str, TrackMetadata] = {}
+
+    if not path.exists():
+        print(f"WARNING: split file not found, treating it as empty: {path}")
+        return tracks
 
     with path.open("r", encoding="utf-8", newline="") as file:
         reader = csv.reader(file, delimiter="\t")
@@ -229,6 +245,7 @@ def create_entries_for_split(
     split: str,
     check: bool = False,
     delete_if_invalid: bool = False,
+    parsed_directory: Path | None = None,
 ) -> list[LabelEntry]:
     genre_file = SPLITS_DIRECTORY / f"autotagging_genre-{split}.tsv"
     mood_file = SPLITS_DIRECTORY / f"autotagging_moodtheme-{split}.tsv"
@@ -239,12 +256,17 @@ def create_entries_for_split(
     # Keep only tracks that occur in both metadata subsets.
     common_track_ids = genre_tracks.keys() & mood_tracks.keys()
 
+    # The .npz files live next to labels.json, so that an overridden
+    # MA2_LABELS_PATH is honoured as well.
+    npz_directory = parsed_directory if parsed_directory is not None else LABELS_PATH.parent
+
     entries: list[LabelEntry] = []
 
     for track_id in sorted(common_track_ids):
         if check and not check_valid_npz(
             track_id=track_id,
             delete_if_invalid=delete_if_invalid,
+            directory=npz_directory,
         ):
             continue
         genre_metadata = genre_tracks[track_id]
@@ -268,9 +290,10 @@ def create_entries_for_split(
         if not genres or not feelings:
             continue
 
-        audio_path = AUDIO_DIRECTORY / genre_metadata["path"]
-
-        audio_path = audio_path.with_suffix(".low.mp3")
+        # The TSVs reference the full-quality files ("41/241.mp3"); the project
+        # works on the low-quality ones ("41/241.low.mp3"). The conversion is
+        # done on the string level so that multi-dot names are safe.
+        audio_path = low_quality_path(AUDIO_DIRECTORY / genre_metadata["path"])
 
         entries.append(
             {
@@ -296,11 +319,13 @@ def main(
             split=split,
             check=check,
             delete_if_invalid=delete_if_invalid,
+            parsed_directory=PARSED_DATASET_DIRECTORY,
         )
         entries.extend(split_entries)
 
         print(f"{split}: {len(split_entries)} tracks")
 
+    LABELS_PATH.parent.mkdir(parents=True, exist_ok=True)
     with LABELS_PATH.open("w", encoding="utf-8") as file:
         json.dump(
             entries,

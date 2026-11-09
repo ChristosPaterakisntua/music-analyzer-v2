@@ -10,8 +10,10 @@ from torch import nn
 from .dataset import MusicDataLoader
 from .models import MusicAnalyzerModel
 from .utils import (
+    CHECKPOINT_DIR,
     FEELING_THRESHOLD,
     GENRE_THRESHOLD,
+    SAVED_MODELS_DIR,
     FloatArray,
     get_multilabel_metrics,
     micro_f1,
@@ -25,9 +27,6 @@ LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-3
 FEELING_LOSS_WEIGHT = 1.0
 MAX_GRADIENT_NORM = 5.0
-
-CHECKPOINT_DIR = Path("../../checkpoints")
-SAVED_MODELS_DIR = Path("../../saved_models")
 
 
 CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)

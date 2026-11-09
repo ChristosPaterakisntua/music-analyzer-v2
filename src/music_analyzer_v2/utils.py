@@ -95,6 +95,43 @@ GENRE_THRESHOLD = 0.5
 FEELING_THRESHOLD = 0.5
 
 
+# ================ PATHS =================
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _env_path(name: str, default: Path) -> Path:
+    """Reads a project path from an environment variable, else uses `default`.
+
+    This keeps the local workflow untouched (defaults resolve exactly like the
+    old CWD-relative paths) while allowing e.g. a Colab run to point the raw /
+    parsed dataset to a Google-Drive mount or a fast local disk — from any
+    working directory.
+    """
+    value = os.environ.get(name)
+    return Path(value) if value else default
+
+
+# Overridable with environment variables (useful on Colab / network mounts):
+#   MA2_RAW_DATASET        -> MTG-Jamendo repo root (contains data/ and dataset/)
+#   MA2_PARSED_DATASET     -> output dir of the parsed .npz files (+ labels.json)
+#   MA2_LABELS_PATH        -> labels.json location (defaults inside parsed dir)
+#   MA2_CHECKPOINT_DIR     -> training checkpoints
+#   MA2_SAVED_MODELS_DIR   -> final trained models
+MTG_JAMENDO_DIRECTORY = _env_path(
+    "MA2_RAW_DATASET", REPO_ROOT / "mtg-jamendo-dataset"
+)
+# raw audio (`.low.mp3` files) inside the MTG-Jamendo repo
+RAW_DATASET_DIRECTORY = MTG_JAMENDO_DIRECTORY / "dataset"
+SPLITS_DIRECTORY = MTG_JAMENDO_DIRECTORY / "data" / "splits" / "split-0"
+PARSED_DATASET_DIRECTORY = _env_path(
+    "MA2_PARSED_DATASET", REPO_ROOT / "parsed_dataset"
+)
+LABELS_PATH = _env_path("MA2_LABELS_PATH", PARSED_DATASET_DIRECTORY / "labels.json")
+CHECKPOINT_DIR = _env_path("MA2_CHECKPOINT_DIR", REPO_ROOT / "checkpoints")
+SAVED_MODELS_DIR = _env_path("MA2_SAVED_MODELS_DIR", REPO_ROOT / "saved_models")
+
+
 # ============== FUNCTIONS ================
 
 
@@ -154,10 +191,85 @@ def multi_hot(
     return multi_hot_array
 
 
-def get_path_from_id(id: str) -> Path:
-    """returns the path pointing to the parsed dataset given the audio id"""
+def low_quality_name(name: str) -> str:
+    """Returns the ``.low.mp3`` filename of a raw MTG-Jamendo audio filename.
+
+    The official split TSVs reference the full-quality files (``41/241.mp3``)
+    while the low-quality CDN serves ``41/241.low.mp3``. The transformation is
+    done on the *string* level (not with :meth:`pathlib.Path.with_suffix`, which
+    would happily turn ``241.low.mp3`` into ``241.low.low.mp3``) so that it is
+    idempotent and safe for names containing several dots.
+
+    Args
+    ----
+    name : `str`
+        the file name (not the full path), e.g. ``"241.mp3"``.
+    """
+    for suffix in (".low.mp3", ".mp3"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)] + ".low.mp3"
+    return name + ".low.mp3"
+
+
+def low_quality_path(path: Path) -> Path:
+    """Same as :func:`low_quality_name` but keeps the directory structure."""
+    return path.with_name(low_quality_name(path.name))
+
+
+def relative_audio_path(audio: str | Path) -> Path:
+    """Extracts the path of a track *inside* the MTG-Jamendo ``dataset/`` folder.
+
+    ``labels.json`` stores the ``audio`` field as the path that
+    :mod:`music_analyzer_v2.create_labels` built, i.e.
+    ``<raw dataset>/dataset/<NN>/<id>.low.mp3``. The raw dataset root may live
+    anywhere (it is env-overridable), so the absolute prefix has to be stripped
+    before the path can be used as a download target.
+
+    The ``dataset/`` marker is looked up as a *path component* (and the last
+    occurrence wins), so a parent directory that happens to be named
+    ``dataset`` cannot hijack the result — unlike a naive
+    ``audio.index("dataset/")``.
+
+    Args
+    ----
+    audio : `str` | `Path`
+        the ``audio`` value of a label entry.
+
+    Returns
+    -------
+    `Path`
+        e.g. ``Path("41/241.low.mp3")``.
+    """
+    path = Path(audio)
+    parts = path.parts
+
+    # last occurrence of a "dataset" component
+    for index in range(len(parts) - 1, -1, -1):
+        if parts[index] == "dataset":
+            return Path(*parts[index + 1 :]) if index + 1 < len(parts) else Path()
+
+    # fallback: MTG-Jamendo always stores the audio as "<NN>/<id>.mp3"
+    if len(parts) >= 2:
+        return Path(*parts[-2:])
+
+    return path
+
+
+def get_path_from_id(id: str, directory: Path | None = None) -> Path:
+    """returns the path pointing to the parsed dataset given the audio id
+
+    Args
+    ----
+    id : `str`
+        track id (e.g. `track_0000241`)
+    directory : `Path` | None
+        the parsed dataset directory. `None` uses
+        :data:`PARSED_DATASET_DIRECTORY` (env-overridable via
+        `MA2_PARSED_DATASET`).
+    """
     path = Path(re.sub("^track_0*", "", id) + ".npz")
-    return Path("../../parsed_dataset") / path
+    base = PARSED_DATASET_DIRECTORY if directory is None else Path(directory)
+    return base / path
 
 
 def validate_inputs(
@@ -183,8 +295,12 @@ def validate_inputs(
         raise ValueError("The scalar and log-mel batch sizes differ")
 
 
-def check_valid_npz(track_id: str, delete_if_invalid: bool = False) -> bool:
-    path: Path = get_path_from_id(track_id)
+def check_valid_npz(
+    track_id: str,
+    delete_if_invalid: bool = False,
+    directory: Path | None = None,
+) -> bool:
+    path: Path = get_path_from_id(track_id, directory=directory)
     res: bool = True
     try:
         if not zipfile.is_zipfile(path):

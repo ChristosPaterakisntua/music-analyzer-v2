@@ -12,9 +12,27 @@ import argparse
 import os
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-RAW_DATASET_DIRECTORY = REPO_ROOT / "mtg-jamendo-dataset" / "dataset"
-PARSED_DATASET_DIRECTORY = REPO_ROOT / "parsed_dataset"
+# <repo>/scripts/<file>.py -> parents[0]=scripts, parents[1]=repo root
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _env_path(name: str, default: Path) -> Path:
+    """Reads a project path from an environment variable, else uses `default`.
+
+    Mirrors the overrides of `music_analyzer_v2.utils` (MA2_RAW_DATASET /
+    MA2_PARSED_DATASET) so this standalone script keeps working when the
+    parsed dataset lives outside the repo (e.g. fast local disk on Colab).
+    """
+    value = os.environ.get(name)
+    return Path(value) if value else default
+
+
+RAW_DATASET_DIRECTORY = (
+    _env_path("MA2_RAW_DATASET", REPO_ROOT / "mtg-jamendo-dataset") / "dataset"
+)
+PARSED_DATASET_DIRECTORY = _env_path(
+    "MA2_PARSED_DATASET", REPO_ROOT / "parsed_dataset"
+)
 
 
 def remove_empty_dirs(root: Path) -> int:

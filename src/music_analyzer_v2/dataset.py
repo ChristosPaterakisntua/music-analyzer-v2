@@ -12,13 +12,12 @@ from torch.utils.data import DataLoader, Dataset
 from .utils import (
     FEELINGS,
     GENRES,
+    LABELS_PATH,
     FloatArray,
     create_generator,
     get_path_from_id,
     multi_hot,
 )
-
-LABELS_PATH = Path("../../parsed_dataset/labels.json")
 
 NUM_WORKERS = 0
 BATCH_SIZE = 4
@@ -77,7 +76,10 @@ class MusicDataset(Dataset[dict[str, torch.Tensor]]):
         if split not in splits:
             raise ValueError(f"Valid split categories are: {', '.join(splits)}")
 
-        self.label_path = label_path
+        self.label_path = Path(label_path)
+        # the .npz files normally live next to labels.json, so an overridden
+        # labels path automatically implies the matching parsed directory
+        self.parsed_directory = self.label_path.parent
 
         with open(label_path, "r") as f:
             raw_items: list[dict[str, Any]] = json.load(f)
@@ -99,7 +101,7 @@ class MusicDataset(Dataset[dict[str, torch.Tensor]]):
         """
         item = self.items[index]
         track_id = item.get("id")
-        path = get_path_from_id(track_id)
+        path = get_path_from_id(track_id, directory=self.parsed_directory)
         features = np.load(path)
         genres = list(item.get("genres"))
         feelings = list(item.get("feelings"))
@@ -153,7 +155,7 @@ class MusicDataset(Dataset[dict[str, torch.Tensor]]):
     def get_raw_scalar_features(self, index: int) -> FloatArray:
         item = self.items[index]
         track_id = item.get("id")
-        path = get_path_from_id(track_id)
+        path = get_path_from_id(track_id, directory=self.parsed_directory)
         features = np.load(path)
         return features.get("scalar_features")
 

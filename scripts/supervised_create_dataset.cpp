@@ -31,7 +31,7 @@ size_t count_npz() {
 int main(int argc, char* argv[]) {
     
     // deletes parsed mp3
-    if (argv[1] == "--del-parsed") {
+    if (argc > 1 && std::string(argv[1]) == "--del-parsed") {
         CLEAR_CMD += " --confirm";
     }
 

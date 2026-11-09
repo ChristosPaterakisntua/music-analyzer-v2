@@ -7,12 +7,12 @@ import numpy as np
 
 from music_analyzer_v2.audio_loader import load_audio
 from music_analyzer_v2.feature_extractor import ArrayExtractedFeatures, extract_features
-from music_analyzer_v2.utils import check_valid_npz, get_path_from_id
-
-
-REPO_ROOT = Path(__file__).parents[2]
-RAW_DATASET_DIRECTORY = REPO_ROOT / "mtg-jamendo-dataset" / "dataset"
-PARSED_DATASET_DIRECTORY = REPO_ROOT / "parsed_dataset"
+from music_analyzer_v2.utils import (
+    PARSED_DATASET_DIRECTORY,
+    RAW_DATASET_DIRECTORY,
+    check_valid_npz,
+    get_path_from_id,
+)
 
 
 def manage_song(
@@ -49,6 +49,7 @@ def manage_song(
         if not check_valid_npz(
             track_id=track_id,
             delete_if_invalid=True,
+            directory=output_dir,
         ):
             raise RuntimeError("Corrupt output")
     except Exception as error:
@@ -63,6 +64,7 @@ def create_parsed_dataset(
     num_workers: int | None = None,
     max_tracks: int | None = None,
     output_directory: Path | None = None,
+    raw_directory: Path | None = None,
 ) -> None:
     """
     Used only for converting mtg-jamendo dataset to the custom parsed dataset
@@ -79,22 +81,27 @@ def create_parsed_dataset(
     output_directory : `Path` | None
         optional output directory for the `.npz` files. `None` uses the
         default :data:`PARSED_DATASET_DIRECTORY`.
+    raw_directory : `Path` | None
+        optional directory that holds the raw `.low.mp3` audio. `None` uses
+        the default :data:`RAW_DATASET_DIRECTORY`.
     """
     output_dir = (
         PARSED_DATASET_DIRECTORY if output_directory is None else Path(output_directory)
     )
+    raw_dir = RAW_DATASET_DIRECTORY if raw_directory is None else Path(raw_directory)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Collect all audio files and keep only the ones that have not been parsed
     # yet (no matching `.npz`). This is robust against removed `.mp3` files and
     # crashes mid-batch: finished work is always skipped, whatever remains is
     # processed, so reruns never redo finished tracks or get stuck on an offset.
-    paths: list[Path] = sorted(RAW_DATASET_DIRECTORY.rglob("*.mp3"))
+    paths: list[Path] = sorted(raw_dir.rglob("*.mp3"))
 
     pending: list[Path] = []
     for path in paths:
         track_id = path.stem.removesuffix(".low")
-        cache_path = get_path_from_id(track_id)
+        # check inside the actual output dir (may be an overridden local dir)
+        cache_path = get_path_from_id(track_id, directory=output_dir)
         if cache_path.exists():
             continue
         pending.append(path)
@@ -124,4 +131,40 @@ def create_parsed_dataset(
 
 
 if __name__ == "__main__":
-    create_parsed_dataset()
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Parse the raw MTG-Jamendo audio into .npz feature files"
+    )
+    parser.add_argument(
+        "--output-directory",
+        type=Path,
+        default=None,
+        help="where to write the .npz files (default: MA2_PARSED_DATASET)",
+    )
+    parser.add_argument(
+        "--raw-directory",
+        type=Path,
+        default=None,
+        help="where the raw .low.mp3 audio lives (default: MA2_RAW_DATASET/dataset)",
+    )
+    parser.add_argument(
+        "--max-tracks",
+        type=int,
+        default=None,
+        help="process at most N tracks (testing)",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=5,
+        help="number of tracks per batch (default: 5)",
+    )
+    args = parser.parse_args()
+
+    create_parsed_dataset(
+        batch_size=args.batch_size,
+        max_tracks=args.max_tracks,
+        output_directory=args.output_directory,
+        raw_directory=args.raw_directory,
+    )
