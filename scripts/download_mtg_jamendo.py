@@ -49,6 +49,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import re
 import sys
 import tarfile
@@ -201,6 +202,22 @@ def build_tar_targets(quality: str) -> list[tuple[str, Path]]:
     ]
 
 
+def _retry_backoff(error: urllib.error.HTTPError, attempt: int) -> float:
+    """Backoff in seconds for a throttling (5xx) response.
+
+    Honours a ``Retry-After`` header when the server sends one; otherwise falls
+    back to a jittered exponential backoff so parallel workers don't retry in
+    lock-step.
+    """
+    retry_after = error.headers.get("Retry-After")
+    if retry_after is not None:
+        try:
+            return max(1, int(retry_after))
+        except ValueError:
+            pass
+    return min(15 * (2 ** (attempt - 1)), 300) * random.uniform(0.75, 1.25)
+
+
 def download_file(url: str, dest: Path, retries: int, timeout: int = 120) -> tuple[str, int]:
     """Downloads one file with resume support.
 
@@ -251,14 +268,14 @@ def download_file(url: str, dest: Path, retries: int, timeout: int = 120) -> tup
                 if part.exists():
                     part.unlink()
                 return "fail", 0
-            # 5xx (the CDN throttles with 503 under load) -> retry with a long
-            # backoff, the file is definitely there.
+            # 5xx (the CDN throttles with 503 under load) -> retry with a long,
+            # jittered exponential backoff; the file is definitely there.
             if attempt == retries:
                 if part.exists():
                     part.unlink()
                 return "fail", 0
-            backoff = min(5 * (2**attempt), 60)
-            print(f"    [{error.code}] throttled, retrying in {backoff}s "
+            backoff = _retry_backoff(error, attempt)
+            print(f"    [{error.code}] throttled, retrying in {backoff:.0f}s "
                   f"({attempt}/{retries})")
             time.sleep(backoff)
         except Exception:  # noqa: BLE001 - network errors of all kinds
@@ -266,7 +283,7 @@ def download_file(url: str, dest: Path, retries: int, timeout: int = 120) -> tup
                 if part.exists():
                     part.unlink()  # corrupted partial, drop it
                 return "fail", 0
-            time.sleep(min(2**attempt, 10))
+            time.sleep(min(2 ** attempt, 30) * random.uniform(0.75, 1.25))
     return "fail", 0
 
 
@@ -377,8 +394,8 @@ def main() -> int:
     parser.add_argument("--mode", choices=("files", "tars", "splits"), default="files",
                         help="files = only tracks from labels.json; tars = whole dataset archives; "
                              "splits = only the metadata split TSVs")
-    parser.add_argument("--workers", type=int, default=12, help="parallel downloads (default 12)")
-    parser.add_argument("--retries", type=int, default=3, help="attempts per file (default 3)")
+    parser.add_argument("--workers", type=int, default=4, help="parallel downloads (default 4)")
+    parser.add_argument("--retries", type=int, default=10, help="attempts per file (default 10)")
     parser.add_argument("--limit", type=int, default=None, help="download at most N files (testing)")
     parser.add_argument("--dry-run", action="store_true", help="only print what would be done")
     args = parser.parse_args()
