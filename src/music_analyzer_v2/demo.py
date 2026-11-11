@@ -1,7 +1,7 @@
 import torch
 
 from .audio_loader import AudioLoadError, load_audio
-from .feature_extractor import extract_features
+from .feature_extractor import ArrayExtractedFeatures, extract_features
 from .models import load_saved_model
 from .utils import outputs_to_predictions, select_device
 
@@ -24,7 +24,7 @@ def demo() -> None:
             continue
 
         try:
-            features = extract_features(audio_data)
+            features = ArrayExtractedFeatures(extract_features(audio_data))
         except (AudioLoadError, ValueError, RuntimeError) as error:
             print(f"Skipping file: {error}")
             continue

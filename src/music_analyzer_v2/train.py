@@ -269,7 +269,7 @@ def train(
     model = model.to(device)
 
     # The scalar normalizer is fitted on the train split
-    # (`MusicDataset.fit_scalar_normalizer`) and stored in every checkpoint so
+    # (`MusicDataset.fit_scalar_standardizer`) and stored in every checkpoint so
     # that inference (e.g. `demo.py`) can reproduce the same transformation.
     train_dataset = train_data_loader.dataset
     scalar_mean = getattr(train_dataset, "scalar_mean", None)

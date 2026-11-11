@@ -1,18 +1,17 @@
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 from pathlib import Path
 from typing import TypedDict
-import argparse
 
 from music_analyzer_v2.utils import (
     FEELINGS,
     GENRES,
     LABELS_PATH,
-    SPLITS_DIRECTORY,
-    RAW_DATASET_DIRECTORY,
     PARSED_DATASET_DIRECTORY,
+    SPLITS_DIRECTORY,
     check_valid_npz,
     low_quality_path,
 )
@@ -163,8 +162,7 @@ FEELING_SOURCES: dict[str, set[str]] = {
 }
 
 # paths now come from music_analyzer_v2.utils (env-overridable, CWD-independent):
-#   MTG_JAMENDO_DIRECTORY / SPLITS_DIRECTORY / RAW_DATASET_DIRECTORY / LABELS_PATH
-AUDIO_DIRECTORY = RAW_DATASET_DIRECTORY
+#   SPLITS_DIRECTORY / PARSED_DATASET_DIRECTORY / LABELS_PATH
 
 SPLITS = ("train", "validation", "test")
 
@@ -293,7 +291,9 @@ def create_entries_for_split(
         # The TSVs reference the full-quality files ("41/241.mp3"); the project
         # works on the low-quality ones ("41/241.low.mp3"). The conversion is
         # done on the string level so that multi-dot names are safe.
-        audio_path = low_quality_path(AUDIO_DIRECTORY / genre_metadata["path"])
+        # Stored relative to the raw-dataset root ("dataset/<NN>/<id>.low.mp3")
+        # so that labels.json stays portable across machines.
+        audio_path = low_quality_path(Path("dataset") / Path(genre_metadata["path"]))
 
         entries.append(
             {

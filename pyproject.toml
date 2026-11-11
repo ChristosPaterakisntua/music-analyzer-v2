@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "google>=3.0.0",
     "librosa>=1.0.0",
     "matplotlib>=3.11.1",
     "pandas>=3.0.6",
@@ -26,8 +27,3 @@ music-analyzer-v2 = "music_analyzer_v2:main"
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]
 build-backend = "uv_build"
-
-[tool.uv.workspace]
-members = [
-    "mtg-jamendo-dataset",
-]

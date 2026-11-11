@@ -16,7 +16,7 @@ for _path in (str(REPO_ROOT / "src"), str(REPO_ROOT / "scripts")):
 
 from music_analyzer_v2 import create_labels  # noqa: E402
 from music_analyzer_v2.dataset import MusicDataset  # noqa: E402
-from music_analyzer_v2.utils import FEELINGS, GENRES  # noqa: E402
+from music_analyzer_v2.utils import FEELINGS, GENRES, SCALAR_FEATURE_NAMES  # noqa: E402
 
 
 GENRE_TSV_HEADER = "track_id\tartist\talbum\tpath\taudio_duration\ttags"
@@ -54,7 +54,6 @@ def split_dir(tmp_path: Path) -> Path:
 def test_multi_label_rows_are_created(split_dir: Path, tmp_path: Path, monkeypatch) -> None:
     """A track with two genres and two moods must keep both labels."""
     monkeypatch.setattr(create_labels, "SPLITS_DIRECTORY", split_dir)
-    monkeypatch.setattr(create_labels, "AUDIO_DIRECTORY", tmp_path / "dataset")
     monkeypatch.setattr(create_labels, "SPLITS", ("train",))
 
     entries = create_labels.create_entries_for_split("train")
@@ -70,7 +69,6 @@ def test_label_audio_path_uses_the_low_quality_name(
     split_dir: Path, tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setattr(create_labels, "SPLITS_DIRECTORY", split_dir)
-    monkeypatch.setattr(create_labels, "AUDIO_DIRECTORY", tmp_path / "dataset")
     monkeypatch.setattr(create_labels, "SPLITS", ("train",))
 
     entries = create_labels.create_entries_for_split("train")
@@ -91,7 +89,6 @@ def test_tracks_missing_in_one_subset_are_skipped(
         encoding="utf-8",
     )
     monkeypatch.setattr(create_labels, "SPLITS_DIRECTORY", split_dir)
-    monkeypatch.setattr(create_labels, "AUDIO_DIRECTORY", tmp_path / "dataset")
 
     entries = create_labels.create_entries_for_split("train")
     assert [e["id"] for e in entries] == ["track_0000241"]
@@ -126,7 +123,7 @@ def test_dataset_resolves_npz_files_next_to_the_labels_file(tmp_path: Path) -> N
     np.savez(
         npz_path,
         log_mel_segments=np.zeros((2, 1, 64, 100), dtype=np.float32),
-        scalar_features=np.ones(37, dtype=np.float32),
+        scalar_features=np.ones(len(SCALAR_FEATURE_NAMES), dtype=np.float32),
     )
 
     dataset = MusicDataset(split="train", label_path=labels_path)

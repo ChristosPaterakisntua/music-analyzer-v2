@@ -171,13 +171,16 @@ class MusicDataset(Dataset[dict[str, torch.Tensor]]):
         """
         genre_targets_list = []
         feeling_targets_list = []
-        for index in range(len(self)):
-            item = self.items[index]
-            genre_targets_list.append(item["genres"])
-            feeling_targets_list.append(item["feelings"])
+        for item in self.items:
+            genre_targets_list.append(
+                multi_hot(labels=item["genres"], classes=GENRES, label_type="genre")
+            )
+            feeling_targets_list.append(
+                multi_hot(labels=item["feelings"], classes=FEELINGS, label_type="feeling")
+            )
         return {
-            "genre_targets": np.stack(genre_targets_list),
-            "feeling_targets": np.stack(feeling_targets_list),
+            "genre_targets": np.stack(genre_targets_list).astype(np.float32),
+            "feeling_targets": np.stack(feeling_targets_list).astype(np.float32),
         }
 
 def collate_songs(batch: list[AudioEntry]) -> dict[str, Any]:

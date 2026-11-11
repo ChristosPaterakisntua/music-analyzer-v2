@@ -8,6 +8,13 @@ wheels/
 
 # Virtual environments
 .venv
+.env
+
+.vscode
+
+# google drive
+.tmp.drivedownload/
+.tmp.driveupload/
 
 # ruff cache
 .ruff_cache/

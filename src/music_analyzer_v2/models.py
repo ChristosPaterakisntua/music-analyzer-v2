@@ -539,6 +539,7 @@ class MusicAnalyzerModel1(nn.Module):
         }
 
     def _validate_inputs(
+        self,
         log_mel_segments: torch.Tensor,
         segment_lengths: torch.Tensor,
     ) -> None:
