@@ -17,6 +17,13 @@ Usage:
     python scripts/supervised_create_dataset.py --del-parsed           # after a verified upload
     python scripts/supervised_create_dataset.py --dry-run
 
+    # Local, disk-friendly run (limited local disk, plenty of Drive space):
+    # process 500 tracks per round, upload each round to a Drive folder, then
+    # delete the local .npz to free disk (already-uploaded tracks are skipped).
+    python scripts/supervised_create_dataset.py --raw-dir C:\...\mtg-jamendo-dataset\dataset \
+        --parsed-dir C:\...\local_parsed --upload-to C:\...\DriveData\parsed_dataset \
+        --max-tracks 500 --delete-local-npz
+
 Environment overrides (same as music_analyzer_v2.utils):
     MA2_RAW_DATASET, MA2_PARSED_DATASET, MA2_LABELS_PATH
 """
@@ -67,8 +74,18 @@ def child_env() -> dict[str, str]:
     return env
 
 
-def run_create_dataset() -> int:
+def run_create_dataset(
+    max_tracks: int | None = None,
+    raw_dir: Path | None = None,
+    skip_if_exists: Path | None = None,
+) -> int:
     command = [sys.executable, "-m", "music_analyzer_v2.create_dataset"]
+    if max_tracks is not None:
+        command += ["--max-tracks", str(max_tracks)]
+    if raw_dir is not None:
+        command += ["--raw-directory", str(raw_dir)]
+    if skip_if_exists is not None:
+        command += ["--skip-if-exists", str(skip_if_exists)]
     completed = subprocess.run(command, cwd=str(REPO_ROOT), env=child_env())
     return completed.returncode
 
@@ -176,6 +193,25 @@ def verify_uploads(parsed_dir: Path, upload_dir: Path) -> tuple[int, int]:
     return verified, missing
 
 
+def delete_local_npz(parsed_dir: Path, upload_dir: Path) -> int:
+    """Deletes local `.npz` files already verified (same size) in `upload_dir`.
+
+    Used for a local, disk-constrained run: after a chunk is uploaded to Drive,
+    its local copy can be removed without redoing work (create_dataset skips
+    such tracks via ``--skip-if-exists``). Returns the number of deleted files.
+    """
+    deleted = 0
+    for source in sorted(parsed_dir.glob("*.npz")):
+        target = upload_dir / source.name
+        try:
+            if target.exists() and target.stat().st_size == source.stat().st_size:
+                source.unlink()
+                deleted += 1
+        except OSError:
+            continue
+    return deleted
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run create_dataset until done, with optional Drive upload"
@@ -183,12 +219,20 @@ def main() -> int:
     parser.add_argument("--parsed-dir", type=Path, default=None,
                         help="local dir holding the .npz files "
                              "(default: MA2_PARSED_DATASET or <repo>/parsed_dataset)")
+    parser.add_argument("--raw-dir", type=Path, default=None,
+                        help="raw audio dir (default: MA2_RAW_DATASET/dataset or "
+                             "<repo>/mtg-jamendo-dataset/dataset)")
     parser.add_argument("--upload-to", type=Path, default=None,
                         help="target dir (e.g. Google Drive mount) that receives the new .npz files")
     parser.add_argument("--upload-only", action="store_true",
                         help="skip parsing: one sync + verification round, then exit")
+    parser.add_argument("--max-tracks", type=int, default=None,
+                        help="process at most N tracks per round (chunking, for "
+                             "disk-constrained local runs)")
     parser.add_argument("--max-no-progress", type=int, default=3,
                         help="abort after N restarts without new .npz (default 3)")
+    parser.add_argument("--delete-local-npz", action="store_true",
+                        help="delete local .npz after a verified upload (frees disk)")
     parser.add_argument("--del-parsed", action="store_true",
                         help="after DONE and a verified upload, delete parsed .mp3 files")
     parser.add_argument("--dry-run", action="store_true",
@@ -223,7 +267,11 @@ def main() -> int:
             if args.dry_run:
                 print("[watch] dry-run: would run `python -m music_analyzer_v2.create_dataset`")
                 return 0
-            return_code = run_create_dataset()
+            return_code = run_create_dataset(
+                max_tracks=args.max_tracks,
+                raw_dir=args.raw_dir,
+                skip_if_exists=upload_dir,
+            )
             after = count_npz(parsed_dir)
 
             if upload_dir:
@@ -231,6 +279,10 @@ def main() -> int:
                 if uploaded:
                     print(f"[watch] uploaded {uploaded} files "
                           f"({uploaded_bytes / (1 << 20):.1f} MiB) to {upload_dir}")
+                if args.delete_local_npz:
+                    freed = delete_local_npz(parsed_dir, upload_dir)
+                    if freed:
+                        print(f"[watch] freed {freed} local .npz (already on Drive)")
 
             if return_code == 0 and after == before:
                 print(f"[watch] DONE: {after} .npz files, nothing left to do.")

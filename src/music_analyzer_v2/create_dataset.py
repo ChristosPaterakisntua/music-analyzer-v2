@@ -65,6 +65,7 @@ def create_parsed_dataset(
     max_tracks: int | None = None,
     output_directory: Path | None = None,
     raw_directory: Path | None = None,
+    skip_if_exists: Path | None = None,
 ) -> None:
     """
     Used only for converting mtg-jamendo dataset to the custom parsed dataset
@@ -84,6 +85,10 @@ def create_parsed_dataset(
     raw_directory : `Path` | None
         optional directory that holds the raw `.low.mp3` audio. `None` uses
         the default :data:`RAW_DATASET_DIRECTORY`.
+    skip_if_exists : `Path` | None
+        optional directory (e.g. a Google Drive folder) checked for an existing
+        `.npz` before parsing a track, so tracks already uploaded are skipped
+        even when the local `.npz` has been deleted to free disk.
     """
     output_dir = (
         PARSED_DATASET_DIRECTORY if output_directory is None else Path(output_directory)
@@ -97,12 +102,18 @@ def create_parsed_dataset(
     # processed, so reruns never redo finished tracks or get stuck on an offset.
     paths: list[Path] = sorted(raw_dir.rglob("*.mp3"))
 
+    skip_dir = None if skip_if_exists is None else Path(skip_if_exists)
+
     pending: list[Path] = []
     for path in paths:
         track_id = path.stem.removesuffix(".low")
         # check inside the actual output dir (may be an overridden local dir)
         cache_path = get_path_from_id(track_id, directory=output_dir)
         if cache_path.exists():
+            continue
+        # also skip tracks whose .npz already exists in e.g. the Drive upload
+        # target (allows deleting local .npz to free disk without redoing work)
+        if skip_dir is not None and get_path_from_id(track_id, directory=skip_dir).exists():
             continue
         pending.append(path)
 
@@ -160,6 +171,12 @@ if __name__ == "__main__":
         default=5,
         help="number of tracks per batch (default: 5)",
     )
+    parser.add_argument(
+        "--skip-if-exists",
+        type=Path,
+        default=None,
+        help="skip tracks whose .npz already exists in this directory",
+    )
     args = parser.parse_args()
 
     create_parsed_dataset(
@@ -167,4 +184,5 @@ if __name__ == "__main__":
         max_tracks=args.max_tracks,
         output_directory=args.output_directory,
         raw_directory=args.raw_directory,
+        skip_if_exists=args.skip_if_exists,
     )
