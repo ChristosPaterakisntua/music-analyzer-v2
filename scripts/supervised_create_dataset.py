@@ -1,4 +1,4 @@
-"""
+r"""
 Portable (Windows/Linux) watchdog around `music_analyzer_v2.create_dataset`.
 
 - Keeps re-running the dataset creation until it finishes cleanly with no new
@@ -36,7 +36,6 @@ import os
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 # <repo>/scripts/<file>.py -> parents[0]=scripts, parents[1]=repo root
@@ -75,11 +74,14 @@ def child_env() -> dict[str, str]:
 
 
 def run_create_dataset(
+    output_dir: Path | None = None,
     max_tracks: int | None = None,
     raw_dir: Path | None = None,
     skip_if_exists: Path | None = None,
 ) -> int:
     command = [sys.executable, "-m", "music_analyzer_v2.create_dataset"]
+    if output_dir is not None:
+        command += ["--output-directory", str(output_dir)]
     if max_tracks is not None:
         command += ["--max-tracks", str(max_tracks)]
     if raw_dir is not None:
@@ -268,6 +270,7 @@ def main() -> int:
                 print("[watch] dry-run: would run `python -m music_analyzer_v2.create_dataset`")
                 return 0
             return_code = run_create_dataset(
+                output_dir=parsed_dir,
                 max_tracks=args.max_tracks,
                 raw_dir=args.raw_dir,
                 skip_if_exists=upload_dir,
