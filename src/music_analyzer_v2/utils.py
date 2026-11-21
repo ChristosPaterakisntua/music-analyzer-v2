@@ -454,11 +454,13 @@ def get_multilabel_metrics(
     probabilities = torch.sigmoid(logits)
     predictions = probabilities >= threshold
     expected = targets >= 0.5
+    predictions = predictions.bool()
+    expected = expected.bool()
 
     true_positives = int(torch.logical_and(predictions, expected).sum().item())
     false_positives = int(torch.logical_and(predictions, ~expected).sum().item())
     false_negatives = int(torch.logical_and(~predictions, expected).sum().item())
-    true_negatives = int(torch.logical_and(~probabilities, ~expected).sum().item())
+    true_negatives = int(torch.logical_and(~predictions, ~expected).sum().item())
 
     return true_positives, false_positives, false_negatives, true_negatives
 
