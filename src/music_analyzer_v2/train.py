@@ -27,7 +27,7 @@ LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-3
 FEELING_LOSS_WEIGHT = 1.0
 MAX_GRADIENT_NORM = 5.0
-
+GRADIENT_ACCUMULATION_STEPS = 2
 
 CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 SAVED_MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -40,6 +40,8 @@ def run_epoch(
     genre_loss_function: nn.Module,
     feeling_loss_function: nn.Module,
     optimizer: torch.optim.Optimizer | None,
+    scaler: torch.amp.GradScaler | None = None,
+    accumulation_steps: int = GRADIENT_ACCUMULATION_STEPS,
     confusion_matrix: bool = False,
 ) -> dict[str, float]:
     """
@@ -57,9 +59,11 @@ def run_epoch(
     """
 
     is_training = optimizer is not None
+    use_amp = device.type == "cuda"
 
     if is_training:
         model.train()
+        optimizer.zero_grad()
     else:
         model.eval()
 
@@ -71,7 +75,9 @@ def run_epoch(
     genre_tp = genre_fp = genre_fn = genre_tn = 0
     feeling_tp = feeling_fp = feeling_fn = feeling_tn = 0
 
-    for batch in data_loader:
+    num_batches = len(data_loader)
+
+    for step, batch in enumerate(data_loader):
         log_mel_segments = batch["log_mel_segments"].to(
             device,
             non_blocking=True,
@@ -93,36 +99,55 @@ def run_epoch(
             non_blocking=True,
         )
 
-        if is_training:
-            optimizer.zero_grad()
-
         with torch.set_grad_enabled(is_training):
-            outputs = model(
-                log_mel_segments=log_mel_segments,
-                segment_lengths=segment_lengths,
-                scalar_features=scalar_features,
-            )
+            with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+                outputs = model(
+                    log_mel_segments=log_mel_segments,
+                    segment_lengths=segment_lengths,
+                    scalar_features=scalar_features,
+                )
 
-            genre_logits = outputs["genre_logits"]
-            feeling_logits = outputs["feeling_logits"]
+                genre_logits = outputs["genre_logits"]
+                feeling_logits = outputs["feeling_logits"]
 
-            genre_loss = genre_loss_function(
-                genre_logits,
-                genre_targets,
-            )
-            feeling_loss = feeling_loss_function(
-                feeling_logits,
-                feeling_targets,
-            )
-            loss = genre_loss + FEELING_LOSS_WEIGHT * feeling_loss
+                genre_loss = genre_loss_function(
+                    genre_logits,
+                    genre_targets,
+                )
+                feeling_loss = feeling_loss_function(
+                    feeling_logits,
+                    feeling_targets,
+                )
+                loss = genre_loss + FEELING_LOSS_WEIGHT * feeling_loss
 
             if is_training:
-                loss.backward()
-                nn.utils.clip_grad_norm_(
-                    parameters=model.parameters(),
-                    max_norm=MAX_GRADIENT_NORM,
+                scaled_loss = loss / accumulation_steps
+
+                if scaler is not None and use_amp:
+                    scaler.scale(scaled_loss).backward()
+                else:
+                    scaled_loss.backward()
+
+                is_step_boundary = (
+                    (step+1) % accumulation_steps == 0) or (
+                    (step+1) == num_batches
                 )
-                optimizer.step()
+
+                if is_step_boundary:
+                    if scaler is not None and use_amp:
+                        scaler.unscale_(optimizer)
+
+                    nn.utils.clip_grad_norm_(
+                        parameters=model.parameters(),
+                        max_norm=MAX_GRADIENT_NORM,
+                    )
+
+                    if scaler is not None and use_amp:
+                        scaler.step(optimizer)
+                        scaler.update()
+                    else:
+                        optimizer.step()
+                    optimizer.zero_grad()
 
         batch_size = log_mel_segments.shape[0]
         total_songs += batch_size
@@ -321,6 +346,8 @@ def train(
     checkpoint_path: Path = CHECKPOINT_DIR / Path(name).with_suffix(".pt")
     save_path: Path = SAVED_MODELS_DIR / Path(name).with_suffix(".pt")
 
+    scaler = torch.amp.GradScaler(device=device.type, enabled=(device.type == "cuda"))
+
     for epoch in range(start_epoch, EPOCHS + 1):
         train_metrics = run_epoch(
             model=model,
@@ -329,6 +356,7 @@ def train(
             genre_loss_function=genre_loss_function,
             feeling_loss_function=feeling_loss_function,
             optimizer=optimizer,
+            scaler=scaler,
         )
 
         validation_metrics = run_epoch(
